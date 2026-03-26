@@ -143,6 +143,17 @@ args = parser.parse_args()
 
 
 def parse_config():
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+
+    def _abs_path(p):
+        if p is None:
+            return None
+        if os.path.isabs(p):
+            return p
+        return os.path.abspath(os.path.join(repo_root, p))
+
+    # normalize experiment root to absolute
+    args.exp = _abs_path(args.exp)
     args.log_path = os.path.join(args.exp, "logs", args.doc)
 
     # parse config file
@@ -163,6 +174,26 @@ def parse_config():
     # overwrite if dataroot is not None
     if not args.dataroot is None:
         new_config.data.dataroot = args.dataroot
+
+    # normalize data paths to absolute
+    if hasattr(new_config, "data"):
+        if hasattr(new_config.data, "dataroot"):
+            new_config.data.dataroot = _abs_path(new_config.data.dataroot)
+        if hasattr(new_config.data, "traindata"):
+            new_config.data.traindata = _abs_path(new_config.data.traindata)
+        if hasattr(new_config.data, "testdata"):
+            new_config.data.testdata = _abs_path(new_config.data.testdata)
+
+    # normalize aux checkpoint paths to absolute
+    if hasattr(new_config, "diffusion"):
+        if hasattr(new_config.diffusion, "trained_aux_cls_ckpt_path"):
+            new_config.diffusion.trained_aux_cls_ckpt_path = _abs_path(
+                new_config.diffusion.trained_aux_cls_ckpt_path
+            )
+        if hasattr(new_config.diffusion, "trained_aux_cls_log_path"):
+            new_config.diffusion.trained_aux_cls_log_path = _abs_path(
+                new_config.diffusion.trained_aux_cls_log_path
+            )
 
     if not args.test and not args.sample:
         args.im_path = os.path.join(args.exp, new_config.training.image_folder, args.doc)
