@@ -1,4 +1,5 @@
-export EXP_DIR=./results_aptos
+export ROOT=/kaggle/working/APTOS2019
+export EXP_DIR=/kaggle/working/APTOS2019/results_aptos
 export N_STEPS=1000
 export RUN_NAME=run_1
 export PRIOR_TYPE=f_phi_prior
@@ -11,5 +12,5 @@ export N_SPLITS=1
 export DEVICE_ID=0
 export N_THREADS=8
 
-python DiffMIC/main.py --device ${DEVICE_ID} --thread ${N_THREADS} --loss ${LOSS} --config configs/${TASK}.yml --exp $EXP_DIR/${MODEL_VERSION_DIR} --doc ${TASK} --n_splits ${N_SPLITS}
+python ${ROOT}/main.py --device ${DEVICE_ID} --thread ${N_THREADS} --loss ${LOSS} --config ${ROOT}/configs/${TASK}.yml --exp $EXP_DIR/${MODEL_VERSION_DIR} --doc ${TASK} --n_splits ${N_SPLITS}
 # python main.py --device ${DEVICE_ID} --thread ${N_THREADS} --loss ${LOSS} --config $EXP_DIR/${MODEL_VERSION_DIR}/logs/ --exp $EXP_DIR/${MODEL_VERSION_DIR} --doc ${TASK} --n_splits ${N_SPLITS} --test --eval_best
