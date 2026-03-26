@@ -174,13 +174,7 @@ def parse_config():
             if args.num_sample > 1:
                 new_config.diffusion.num_sample = args.num_sample
             if os.path.exists(args.log_path):
-                overwrite = False
-                if args.ni:
-                    overwrite = True
-                else:
-                    response = input("Folder already exists. Overwrite? (Y/N)")
-                    if response.upper() == "Y":
-                        overwrite = True
+                overwrite = True
 
                 if overwrite:
                     shutil.rmtree(args.log_path)
