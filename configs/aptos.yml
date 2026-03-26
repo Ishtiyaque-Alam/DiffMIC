@@ -4,9 +4,9 @@ data:
     label_min_max: [0.001, 0.999]
     num_classes: 5
     num_workers: 8
-    dataroot: '/kaggle/input/datasets/mariaherrerot/aptos2019'
-    traindata: '/kaggle/working/aptos2019_train.pkl'
-    testdata: '/kaggle/working/aptos2019_test.pkl'
+    dataroot: '/kaggle/working/'
+    traindata: 'aptos2019_train.pkl'
+    testdata: 'aptos2019_test.pkl'
 
 model:
     type: "simple"
