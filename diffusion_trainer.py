@@ -175,45 +175,12 @@ class Diffusion(object):
             ema_helper = None
 
         if config.diffusion.apply_aux_cls:
-            if hasattr(config.diffusion, "trained_aux_cls_ckpt_path"):  # load saved auxiliary classifier
-                aux_states = torch.load(os.path.join(config.diffusion.trained_aux_cls_ckpt_path,
-                                                     config.diffusion.trained_aux_cls_ckpt_name),
-                                        map_location=self.device)
-                self.cond_pred_model.load_state_dict(aux_states['state_dict'], strict=True)
-                self.cond_pred_model.eval()
-            elif hasattr(config.diffusion, "trained_aux_cls_log_path"):
-                aux_states = torch.load(os.path.join(config.diffusion.trained_aux_cls_log_path, "aux_ckpt.pth"),
-                                        map_location=self.device)
-                self.cond_pred_model.load_state_dict(aux_states[0], strict=True)
-                self.cond_pred_model.eval()
-            else:  # pre-train the guidance auxiliary classifier
-                assert config.diffusion.aux_cls.pre_train
-                self.cond_pred_model.train()
-                pretrain_start_time = time.time()
-                for epoch in range(config.diffusion.aux_cls.n_pretrain_epochs):
-                    for feature_label_set in train_loader:
-                        if config.data.dataset == "gaussian_mixture":
-                            x_batch, y_one_hot_batch, y_logits_batch, y_labels_batch = feature_label_set
-                        else:
-                            x_batch, y_labels_batch = feature_label_set
-                            y_one_hot_batch, y_logits_batch = cast_label_to_one_hot_and_prototype(y_labels_batch,
-                                                                                                  config)
-                        aux_loss = self.nonlinear_guidance_model_train_step(x_batch.to(self.device),
-                                                                            y_one_hot_batch.to(self.device),
-                                                                            aux_optimizer)
-                    if epoch % config.diffusion.aux_cls.logging_interval == 0:
-                        logging.info(
-                            f"epoch: {epoch}, guidance auxiliary classifier pre-training loss: {aux_loss}"
-                        )
-                pretrain_end_time = time.time()
-                logging.info("\nPre-training of guidance auxiliary classifier took {:.4f} minutes.\n".format(
-                    (pretrain_end_time - pretrain_start_time) / 60))
-                # save auxiliary model after pre-training
-                aux_states = [
-                    self.cond_pred_model.state_dict(),
-                    aux_optimizer.state_dict(),
-                ]
-                torch.save(aux_states, os.path.join(self.args.log_path, "aux_ckpt.pth"))
+            # NOTE: Use external aux model and skip aux pre-training.
+            aux_ckpt_path = "/kaggle/input/models/deadlydracula/aux-diffmic/pytorch/default/1/aux_ckpt.pth"
+            aux_states = torch.load(aux_ckpt_path, map_location=self.device)
+            # saved as [state_dict, optimizer_state_dict]
+            self.cond_pred_model.load_state_dict(aux_states[0], strict=True)
+            self.cond_pred_model.eval()
             # report accuracy on both training and test set for the pre-trained auxiliary classifier
             y_acc_aux_model = self.evaluate_guidance_model(train_loader)
             logging.info("\nAfter pre-training, guidance classifier accuracy on the training set is {:.8f}.".format(
@@ -426,7 +393,7 @@ class Diffusion(object):
                                 y1_true = torch.cat([y1_true, target]) if y1_true is not None else target
                                 acc_avg += accuracy(label_t_0.detach().cpu(), target.cpu())[0].item()
                         kappa_avg = cohen_kappa(y1_pred.detach().cpu(), y1_true.cpu()).item()
-                        f1_avg = compute_f1_score(y1_true,y1_pred).item()
+                        f1_avg = compute_f1_score(y1_true, y1_pred)
                                 
                         acc_avg /= (test_batch_idx + 1)
                         #kappa_avg /= (test_batch_idx + 1)

@@ -1,4 +1,4 @@
-export ROOT=/kaggle/working/APTOS2019
+export ROOT=/kaggle/working/DiffMIC
 export EXP_DIR=/kaggle/working/APTOS2019/results_aptos
 export N_STEPS=1000
 export RUN_NAME=run_1
