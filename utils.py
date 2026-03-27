@@ -100,8 +100,8 @@ def get_dataset(args, config):
         train_dataset = BUDataset(data_list=config.data.traindata, train=True)
         test_dataset = BUDataset(data_list=config.data.testdata, train=False)
     elif config.data.dataset == "APTOS":
-        train_dataset = APTOSDataset(data_list=config.data.traindata, train=True)
-        test_dataset = APTOSDataset(data_list=config.data.testdata, train=False)
+        train_dataset = APTOSDataset('/kaggle/working/aptos2019_train.pkl', train=True)
+        test_dataset = APTOSDataset('', train=False)
     elif config.data.dataset == "ISIC":
         train_dataset = ISICDataset(data_list=config.data.traindata, train=True)
         test_dataset = ISICDataset(data_list=config.data.testdata, train=False)
