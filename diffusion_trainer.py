@@ -177,7 +177,7 @@ class Diffusion(object):
         if config.diffusion.apply_aux_cls:
             # NOTE: Use external aux model and skip aux pre-training.
             aux_ckpt_path = getattr(self.args, "aux_ckpt_path", None) or \
-                "/kaggle/input/models/deadlydracula/aux-diffmic/pytorch/default/1/aux_ckpt.pth"
+                "/kaggle/input/datasets/deadlydracula/diffmic-pretrained/aux_ckpt.pth"
             aux_states = torch.load(aux_ckpt_path, map_location=self.device)
             # saved as [state_dict, optimizer_state_dict]
             self.cond_pred_model.load_state_dict(aux_states[0], strict=True)
