@@ -87,6 +87,18 @@ parser.add_argument(
     "--resume_training", action="store_true", help="Whether to resume training"
 )
 parser.add_argument(
+    "--resume_ckpt_path",
+    type=str,
+    default=None,
+    help="Absolute path to diffusion ckpt.pth for resuming training.",
+)
+parser.add_argument(
+    "--aux_ckpt_path",
+    type=str,
+    default=None,
+    help="Absolute path to aux_ckpt.pth for loading auxiliary classifier.",
+)
+parser.add_argument(
     "-i",
     "--image_folder",
     type=str,

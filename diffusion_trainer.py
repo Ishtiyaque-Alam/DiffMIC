@@ -176,7 +176,8 @@ class Diffusion(object):
 
         if config.diffusion.apply_aux_cls:
             # NOTE: Use external aux model and skip aux pre-training.
-            aux_ckpt_path = "/kaggle/input/models/deadlydracula/aux-diffmic/pytorch/default/1/aux_ckpt.pth"
+            aux_ckpt_path = getattr(self.args, "aux_ckpt_path", None) or \
+                "/kaggle/input/models/deadlydracula/aux-diffmic/pytorch/default/1/aux_ckpt.pth"
             aux_states = torch.load(aux_ckpt_path, map_location=self.device)
             # saved as [state_dict, optimizer_state_dict]
             self.cond_pred_model.load_state_dict(aux_states[0], strict=True)
@@ -192,8 +193,9 @@ class Diffusion(object):
         if not self.args.train_guidance_only:
             start_epoch, step = 0, 0
             if self.args.resume_training:
-                states = torch.load(os.path.join(self.args.log_path, "ckpt.pth"),
-                                    map_location=self.device)
+                resume_ckpt_path = getattr(self.args, "resume_ckpt_path", None)
+                ckpt_path = resume_ckpt_path if resume_ckpt_path else os.path.join(self.args.log_path, "ckpt.pth")
+                states = torch.load(ckpt_path, map_location=self.device)
                 model.load_state_dict(states[0])
 
                 states[1]["param_groups"][0]["eps"] = self.config.optim.eps
@@ -206,8 +208,9 @@ class Diffusion(object):
                 if config.diffusion.apply_aux_cls and (
                         hasattr(config.diffusion, "trained_aux_cls_ckpt_path") is False) and (
                         hasattr(config.diffusion, "trained_aux_cls_log_path") is False):
-                    aux_states = torch.load(os.path.join(self.args.log_path, "aux_ckpt.pth"),
-                                            map_location=self.device)
+                    aux_resume_path = getattr(self.args, "aux_ckpt_path", None)
+                    aux_ckpt = aux_resume_path if aux_resume_path else os.path.join(self.args.log_path, "aux_ckpt.pth")
+                    aux_states = torch.load(aux_ckpt, map_location=self.device)
                     self.cond_pred_model.load_state_dict(aux_states[0])
                     aux_optimizer.load_state_dict(aux_states[1])
 

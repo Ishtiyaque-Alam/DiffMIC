@@ -1,5 +1,7 @@
 export ROOT=/kaggle/working/DiffMIC
 export EXP_DIR=/kaggle/working/APTOS2019/results_aptos
+export RESUME_CKPT=/kaggle/input/datasets/deadlydracula/diffmic-pretrained/ckpt.pth
+export AUX_CKPT=/kaggle/input/datasets/deadlydracula/diffmic-pretrained/aux_ckpt.pth
 export N_STEPS=1000
 export RUN_NAME=run_1
 export PRIOR_TYPE=f_phi_prior
@@ -12,5 +14,5 @@ export N_SPLITS=1
 export DEVICE_ID=0
 export N_THREADS=8
 
-python ${ROOT}/main.py --device ${DEVICE_ID} --thread ${N_THREADS} --loss ${LOSS} --config ${ROOT}/configs/${TASK}.yml --exp $EXP_DIR/${MODEL_VERSION_DIR} --doc ${TASK} --n_splits ${N_SPLITS}
+python ${ROOT}/main.py --device ${DEVICE_ID} --thread ${N_THREADS} --loss ${LOSS} --config ${ROOT}/configs/${TASK}.yml --exp $EXP_DIR/${MODEL_VERSION_DIR} --doc ${TASK} --n_splits ${N_SPLITS} --resume_training --resume_ckpt_path ${RESUME_CKPT} --aux_ckpt_path ${AUX_CKPT}
 # python main.py --device ${DEVICE_ID} --thread ${N_THREADS} --loss ${LOSS} --config $EXP_DIR/${MODEL_VERSION_DIR}/logs/ --exp $EXP_DIR/${MODEL_VERSION_DIR} --doc ${TASK} --n_splits ${N_SPLITS} --test --eval_best
