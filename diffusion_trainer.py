@@ -72,6 +72,14 @@ class Diffusion(object):
         elif self.model_var_type == "fixedsmall":
             self.logvar = posterior_variance.clamp(min=1e-20).log()
 
+        # --- DPM++ inference config (used by dpm_pp_sample_loop) ---
+        self.dpm_beta_start = config.diffusion.beta_start
+        self.dpm_beta_end = config.diffusion.beta_end
+        self.dpm_beta_schedule = config.diffusion.beta_schedule
+        self.dpm_num_train_timesteps = self.num_timesteps
+        # test_timesteps controls DPM++ NFEs (set to 10 in config)
+        self.dpm_inference_steps = self.test_num_timesteps
+
         # initial prediction model as guided condition
         if config.diffusion.apply_aux_cls:
             self.cond_pred_model = AuxCls(config).to(self.device)
@@ -388,10 +396,15 @@ class Diffusion(object):
                                     target_pred, y_global, y_local = self.compute_guiding_prediction(images_unflat)
                                     target_pred = target_pred.softmax(dim=1)
 
-                                label_t_0 = p_sample_loop(model, images, target_pred, y_T_mean,
-                                                          self.num_timesteps, self.alphas,
-                                                          self.one_minus_alphas_bar_sqrt,
-                                                          only_last_sample=True)                               
+                                label_t_0 = dpm_pp_sample_loop(
+                                    model, images, target_pred, y_T_mean,
+                                    n_steps=self.dpm_inference_steps,
+                                    beta_start=self.dpm_beta_start,
+                                    beta_end=self.dpm_beta_end,
+                                    beta_schedule=self.dpm_beta_schedule,
+                                    num_train_timesteps=self.dpm_num_train_timesteps,
+                                    device=self.device,
+                                )
                                 y1_pred = torch.cat([y1_pred, label_t_0]) if y1_pred is not None else label_t_0
                                 y1_true = torch.cat([y1_true, target]) if y1_true is not None else target
                                 acc_avg += accuracy(label_t_0.detach().cpu(), target.cpu())[0].item()
@@ -533,10 +546,15 @@ class Diffusion(object):
                 if not config.diffusion.noise_prior:  # apply f_phi(x) instead of 0 as prior mean
                     target_pred, y_global, y_local = self.compute_guiding_prediction(images_unflat)
                     target_pred = target_pred.softmax(dim=1)
-                label_t_0 = p_sample_loop(model, images, target_pred, y_T_mean,
-                                                self.test_num_timesteps, self.alphas,
-                                                self.one_minus_alphas_bar_sqrt,
-                                                only_last_sample=True)
+                label_t_0 = dpm_pp_sample_loop(
+                    model, images, target_pred, y_T_mean,
+                    n_steps=self.dpm_inference_steps,
+                    beta_start=self.dpm_beta_start,
+                    beta_end=self.dpm_beta_end,
+                    beta_schedule=self.dpm_beta_schedule,
+                    num_train_timesteps=self.dpm_num_train_timesteps,
+                    device=self.device,
+                )
                 #print(label_t_0.shape)
                 label_t_0 = label_t_0.softmax(dim=-1)
                 acc_avg += accuracy(label_t_0.detach().cpu(), target.cpu())[0].item()
@@ -544,13 +562,20 @@ class Diffusion(object):
                 y1_pred = torch.cat([y1_pred, label_t_0]) if y1_pred is not None else label_t_0
                 y1_true = torch.cat([y1_true, target]) if y1_true is not None else target                 
 
-        f1_avg = compute_f1_score(y1_true,y1_pred)
-        acc_avg /= (test_batch_idx + 1)
-        kappa_avg /= (test_batch_idx + 1)
-        logging.info(
-                            (
-                                    f"[Test:] Average accuracy: {acc_avg}, Average Kappa: {kappa_avg}, F1: {f1_avg}"
-                            )
-                    )
+        f1_avg   = compute_f1_score(y1_true, y1_pred)
+        kappa_avg = cohen_kappa(y1_pred.detach().cpu(), y1_true.cpu()).item()
+        acc_avg  /= (test_batch_idx + 1)
 
-
+        sep = "=" * 54
+        result_str = (
+            f"\n{sep}\n"
+            f"               TEST RESULTS\n"
+            f"{sep}\n"
+            f"  Accuracy  : {acc_avg * 100:.2f}%\n"
+            f"  F1 Score  : {f1_avg:.4f}  (macro)\n"
+            f"  Kappa     : {kappa_avg:.4f}  (quadratic)\n"
+            f"  DPM++ steps used : {self.dpm_inference_steps}\n"
+            f"{sep}"
+        )
+        logging.info(result_str)
+        print(result_str)

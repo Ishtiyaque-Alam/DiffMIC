@@ -165,3 +165,75 @@ def compute_mmd(x, y):
     mmd = x_kernel.mean() + y_kernel.mean() - 2*xy_kernel.mean()
     return mmd
 
+
+# ---------------------------------------------------------------------------
+# DPM++ 2M solver using HuggingFace Diffusers
+# ---------------------------------------------------------------------------
+def dpm_pp_sample_loop(
+    model,
+    x_img,
+    y_0_hat,
+    y_T_mean,
+    n_steps,
+    beta_start,
+    beta_end,
+    beta_schedule,
+    num_train_timesteps,
+    device,
+):
+    """
+    DPM++ 2nd-order multistep reverse sampling (HuggingFace Diffusers).
+
+    Mathematical justification for the heterologous shift:
+      DiffMIC forward process:
+        y_t = sqrt_abar_t * y_0 + (1 - sqrt_abar_t) * y_T_mean + sigma_t * eps
+      Define centred variable:
+        x_t = y_t - y_T_mean
+             = sqrt_abar_t * (y_0 - y_T_mean) + sigma_t * eps
+      => x_t follows *standard* DDPM around x_0 = y_0 - y_T_mean.
+      Initial sample: x_T = z ~ N(0,I)  =>  y_T = z + y_T_mean  (same as DDPM loop).
+      Model call:  model(x_img, y_t=x_t + y_T_mean, t, y_0_hat) -> eps_theta.
+      Recovery:    y_0 = x_0 + y_T_mean.
+    """
+    from diffusers import DPMSolverMultistepScheduler
+
+    # Map DiffMIC beta schedule names to diffusers convention
+    hf_schedule = {
+        "linear":          "linear",
+        "cosine":          "squaredcos_cap_v2",
+        "cosine_reverse":  "squaredcos_cap_v2",
+        "cosine_anneal":   "squaredcos_cap_v2",
+        "quad":            "linear",
+        "jsd":             "linear",
+        "sigmoid":         "linear",
+        "const":           "linear",
+    }.get(beta_schedule, "linear")
+
+    scheduler = DPMSolverMultistepScheduler(
+        num_train_timesteps=num_train_timesteps,
+        beta_start=beta_start,
+        beta_end=beta_end,
+        beta_schedule=hf_schedule,
+        solver_order=2,
+        prediction_type="epsilon",
+        thresholding=False,
+    )
+    scheduler.set_timesteps(n_steps, device=device)
+
+    # Initialise centred sample: x_T = z ~ N(0, I)
+    z = torch.randn_like(y_T_mean).to(device)
+    x_centered = z  # shape: (B, n_classes)
+
+    for t in scheduler.timesteps:
+        # Expand scalar timestep to batch dimension for the embedding lookup
+        t_batch = t.long().unsqueeze(0).expand(x_centered.shape[0]).to(device)
+        # Reconstruct heterologous y_t
+        y_t = x_centered + y_T_mean
+        with torch.no_grad():
+            eps_theta = model(x_img, y_t, t_batch, y_0_hat)
+        # DPM++ step on centred variable
+        x_centered = scheduler.step(eps_theta, t, x_centered).prev_sample
+
+    # Shift back to label space
+    y_0 = x_centered + y_T_mean
+    return y_0

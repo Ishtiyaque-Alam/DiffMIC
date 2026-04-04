@@ -34,7 +34,10 @@ class ConditionalModel(nn.Module):
         hidden_dim = config.model.hidden_dim
         self.guidance = guidance
         # encoder for x
-        self.encoder_x = ResNetEncoder(arch=arch, feature_dim=feature_dim)
+        if arch.startswith('convnextv2'):
+            self.encoder_x = ConvNeXtV2Encoder(arch=arch, feature_dim=feature_dim)
+        else:
+            self.encoder_x = ResNetEncoder(arch=arch, feature_dim=feature_dim)
         # batch norm layer
         self.norm = nn.BatchNorm1d(feature_dim)
 
@@ -70,6 +73,28 @@ class ConditionalModel(nn.Module):
 
         return y
 
+
+
+# ---------------------------------------------------------------------------
+# ConvNeXt V2 encoder  (NO pretrained weights — trained from scratch)
+# ---------------------------------------------------------------------------
+class ConvNeXtV2Encoder(nn.Module):
+    """
+    Wraps any timm convnextv2_* variant as an image encoder.
+    pretrained=False ensures the joint model starts from random weights.
+    num_classes=0 tells timm to return the pooled feature vector (no head).
+    """
+    def __init__(self, arch='convnextv2_tiny', feature_dim=128):
+        super(ConvNeXtV2Encoder, self).__init__()
+        backbone = create_model(arch, pretrained=False, num_classes=0)
+        self.featdim = backbone.num_features          # 768 for tiny
+        self.backbone = backbone
+        self.g = nn.Linear(self.featdim, feature_dim) # project to feature_dim
+
+    def forward(self, x):
+        feat = self.backbone(x)   # (B, featdim)
+        feat = self.g(feat)       # (B, feature_dim)
+        return feat
 
 
 # ResNet 18 or 50 as image encoder
