@@ -10,7 +10,7 @@ data:
 
 model:
     type: "simple"
-    data_dim: 150528``
+    data_dim: 150528
     #data_dim: 442368
     #    data_dim: [3, 32, 32]
     n_input_channels: 3
