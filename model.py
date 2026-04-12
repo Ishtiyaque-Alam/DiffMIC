@@ -65,6 +65,10 @@ def _load_weights_into_module(module, path):
         len(missing),
         len(unexpected),
     )
+    print(
+        f"ConvNeXt backbone weights loaded successfully from: {path} "
+        f"(matched tensors={len(remapped)}, missing={len(missing)}, unexpected={len(unexpected)})"
+    )
 
 class ConditionalLinear(nn.Module):
     def __init__(self, num_in, num_out, n_steps):
