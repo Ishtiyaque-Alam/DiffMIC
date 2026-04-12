@@ -86,7 +86,7 @@ class ConvNeXtV2Encoder(nn.Module):
     """
     def __init__(self, arch='convnextv2_tiny', feature_dim=128):
         super(ConvNeXtV2Encoder, self).__init__()
-        backbone = create_model(arch, pretrained=False, num_classes=0)
+        backbone = create_model(arch, pretrained=True, num_classes=0)
         self.featdim = backbone.num_features          # 768 for tiny
         self.backbone = backbone
         self.g = nn.Linear(self.featdim, feature_dim) # project to feature_dim
