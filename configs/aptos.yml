@@ -20,6 +20,7 @@ model:
     cat_x: True
     cat_y_pred: True
     arch: convnextv2_tiny
+    convnextv2_pretrained_path: "/kaggle/input/models/deadlydracula/convnextv2/pytorch/default/1/model.safetensors"
     #    arch: resnet50
     #    arch: resnet18
     var_type: fixedlarge

@@ -1,3 +1,6 @@
+import logging
+import os
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,6 +10,61 @@ from torchvision.models.densenet import densenet121
 from timm.models import create_model
 
 import numpy as np
+
+
+def _load_weights_into_module(module, path):
+    """Load .safetensors or .pth/.pt state dict into module; logs and skips if missing."""
+    if not path or not isinstance(path, str) or not path.strip():
+        return
+    path = path.strip()
+    if not os.path.isfile(path):
+        logging.warning("ConvNeXt pretrained path not found (skip load): %s", path)
+        return
+    try:
+        if path.endswith(".safetensors"):
+            from safetensors.torch import load_file
+
+            state = load_file(path)
+        else:
+            ckpt = torch.load(path, map_location="cpu")
+            if isinstance(ckpt, dict) and "state_dict" in ckpt:
+                state = ckpt["state_dict"]
+            elif isinstance(ckpt, dict) and "model" in ckpt:
+                state = ckpt["model"]
+            else:
+                state = ckpt
+    except ImportError as e:
+        logging.error(
+            "Loading %s requires safetensors (pip install safetensors): %s", path, e
+        )
+        return
+    target = module.state_dict()
+
+    def _strip_prefixes(key):
+        for p in ("model.", "module.", "backbone.", "encoder."):
+            if key.startswith(p):
+                return key[len(p) :]
+        return key
+
+    remapped = {}
+    for k, v in state.items():
+        nk = _strip_prefixes(k)
+        if nk in target and target[nk].shape == v.shape:
+            remapped[nk] = v
+        elif k in target and target[k].shape == v.shape:
+            remapped[k] = v
+
+    if not remapped:
+        remapped = state
+
+    missing, unexpected = module.load_state_dict(remapped, strict=False)
+    logging.info(
+        "Loaded backbone weights from %s (matched tensors=%d, missing=%d, unexpected=%d)",
+        path,
+        len(remapped),
+        len(missing),
+        len(unexpected),
+    )
 
 class ConditionalLinear(nn.Module):
     def __init__(self, num_in, num_out, n_steps):
@@ -35,7 +93,10 @@ class ConditionalModel(nn.Module):
         self.guidance = guidance
         # encoder for x
         if arch.startswith('convnextv2'):
-            self.encoder_x = ConvNeXtV2Encoder(arch=arch, feature_dim=feature_dim)
+            ckpt_path = getattr(config.model, 'convnextv2_pretrained_path', None)
+            self.encoder_x = ConvNeXtV2Encoder(
+                arch=arch, feature_dim=feature_dim, pretrained_path=ckpt_path
+            )
         else:
             self.encoder_x = ResNetEncoder(arch=arch, feature_dim=feature_dim)
         # batch norm layer
@@ -76,17 +137,18 @@ class ConditionalModel(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# ConvNeXt V2 encoder  (NO pretrained weights — trained from scratch)
+# ConvNeXt V2 encoder
 # ---------------------------------------------------------------------------
 class ConvNeXtV2Encoder(nn.Module):
     """
-    Wraps any timm convnextv2_* variant as an image encoder.
-    pretrained=False ensures the joint model starts from random weights.
-    num_classes=0 tells timm to return the pooled feature vector (no head).
+    timm convnextv2_* with num_classes=0 (feature vector, no classifier head).
+    Optional pretrained_path: .safetensors or PyTorch .pth weights for the backbone only.
+    Projection head self.g stays randomly initialized.
     """
-    def __init__(self, arch='convnextv2_tiny', feature_dim=128):
+    def __init__(self, arch='convnextv2_tiny', feature_dim=128, pretrained_path=None):
         super(ConvNeXtV2Encoder, self).__init__()
-        backbone = create_model(arch, pretrained=True, num_classes=0)
+        backbone = create_model(arch, pretrained=False, num_classes=0)
+        _load_weights_into_module(backbone, pretrained_path)
         self.featdim = backbone.num_features          # 768 for tiny
         self.backbone = backbone
         self.g = nn.Linear(self.featdim, feature_dim) # project to feature_dim
