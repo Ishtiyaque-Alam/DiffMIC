@@ -10,8 +10,8 @@ data:
     num_classes: 7
     num_workers: 8
     dataroot: ''
-    traindata: '/kaggle/working/train.pkl'
-    testdata: '/kaggle/working/test.pkl'
+    traindata: '/kaggle/working/train_HAM10000.pkl'
+    testdata: '/kaggle/working/test_HAM10000.pkl'
 
 model:
     type: "simple"
