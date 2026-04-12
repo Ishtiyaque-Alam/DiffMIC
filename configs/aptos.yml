@@ -19,7 +19,7 @@ model:
     hidden_dim: 6144
     cat_x: True
     cat_y_pred: True
-    arch: densenet121
+    arch: resnet18
     convnextv2_pretrained_path: "/kaggle/input/models/deadlydracula/convnextv2/pytorch/default/1/model.safetensors"
     #    arch: resnet50
     #    arch: resnet18
@@ -64,13 +64,13 @@ training:
     image_folder: "training_image_samples"
 
 sampling:
-    batch_size: 32
+    batch_size: 16
     sampling_size: 1000
     last_only: True
     image_folder: "sampling_image_samples"
 
 testing:
-    batch_size: 32
+    batch_size: 16
     sampling_size: 1000
     last_only: True
     plot_freq: 200
