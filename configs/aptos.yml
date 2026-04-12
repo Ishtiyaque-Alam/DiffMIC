@@ -19,7 +19,7 @@ model:
     hidden_dim: 6144
     cat_x: True
     cat_y_pred: True
-    arch: convnextv2_tiny
+    arch: densenet121
     convnextv2_pretrained_path: "/kaggle/input/models/deadlydracula/convnextv2/pytorch/default/1/model.safetensors"
     #    arch: resnet50
     #    arch: resnet18
