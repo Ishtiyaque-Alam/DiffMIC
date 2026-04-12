@@ -161,6 +161,7 @@ import pdb
 # from sklearn.metrics.ranking import roc_auc_score
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, cohen_kappa_score
 from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
+from sklearn.metrics import multilabel_confusion_matrix
 def compute_isic_metrics(gt, pred):
     gt_np = gt.cpu().detach().numpy()
     pred_np = pred.cpu().detach().numpy()
@@ -199,3 +200,37 @@ def compute_f1_score(gt, pred):
 
     # print(confusion_matrix(gt_class, pred_class))
     return F1
+
+
+def format_classification_detail_report(y_true, y_pred_probs, num_classes):
+    """
+    Confusion matrix (rows=true, cols=pred) and per-class TN/FP/FN/TP via one-vs-rest.
+    For binary classification, also prints global TN/FP/FN/TP with positive class = 1.
+    """
+    if torch.is_tensor(y_true):
+        y_true = y_true.cpu().detach().numpy()
+    else:
+        y_true = np.asarray(y_true)
+    if torch.is_tensor(y_pred_probs):
+        pred_np = y_pred_probs.cpu().detach().numpy()
+    else:
+        pred_np = np.asarray(y_pred_probs)
+    y_true = np.ravel(y_true).astype(np.int64, copy=False)
+    pred_class = np.argmax(pred_np, axis=1).astype(np.int64, copy=False)
+    labels = np.arange(int(num_classes))
+    cm = confusion_matrix(y_true, pred_class, labels=labels)
+    lines = [
+        "Confusion matrix (rows=true, cols=pred):",
+        np.array2string(cm),
+        "Per-class one-vs-rest (TN, FP, FN, TP):",
+    ]
+    mcm = multilabel_confusion_matrix(y_true, pred_class, labels=labels)
+    for c in labels:
+        tn, fp, fn, tp = mcm[c, 0, 0], mcm[c, 0, 1], mcm[c, 1, 0], mcm[c, 1, 1]
+        lines.append(f"  class {c}: TN={tn}  FP={fp}  FN={fn}  TP={tp}")
+    if int(num_classes) == 2:
+        lines.append(
+            "Binary summary (positive class=1): "
+            f"TN={cm[0, 0]}  FP={cm[0, 1]}  FN={cm[1, 0]}  TP={cm[1, 1]}"
+        )
+    return "\n".join(lines)

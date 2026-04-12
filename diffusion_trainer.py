@@ -410,7 +410,10 @@ class Diffusion(object):
                                 acc_avg += accuracy(label_t_0.detach().cpu(), target.cpu())[0].item()
                         kappa_avg = cohen_kappa(y1_pred.detach().cpu(), y1_true.cpu()).item()
                         f1_avg = compute_f1_score(y1_true, y1_pred)
-                                
+                        val_detail = format_classification_detail_report(
+                            y1_true, y1_pred, config.data.num_classes
+                        )
+
                         acc_avg /= (test_batch_idx + 1)
                         #kappa_avg /= (test_batch_idx + 1)
                         if acc_avg > max_accuracy:
@@ -437,6 +440,7 @@ class Diffusion(object):
                                     f"Max accuracy: {max_accuracy:.2f}%"
                             )
                         )
+                        logging.info("Validation confusion / per-class TN FP FN TP:\n%s", val_detail)
 
             # save the model after training is finished
             states = [
@@ -565,6 +569,9 @@ class Diffusion(object):
         f1_avg   = compute_f1_score(y1_true, y1_pred)
         kappa_avg = cohen_kappa(y1_pred.detach().cpu(), y1_true.cpu()).item()
         acc_avg  /= (test_batch_idx + 1)
+        detail_report = format_classification_detail_report(
+            y1_true, y1_pred, config.data.num_classes
+        )
 
         sep = "=" * 54
         result_str = (
@@ -575,6 +582,7 @@ class Diffusion(object):
             f"  F1 Score  : {f1_avg:.4f}  (macro)\n"
             f"  Kappa     : {kappa_avg:.4f}  (quadratic)\n"
             f"  DPM++ steps used : {self.dpm_inference_steps}\n"
+            f"{detail_report}\n"
             f"{sep}"
         )
         logging.info(result_str)
