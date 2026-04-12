@@ -163,13 +163,12 @@ class ConvNeXtV2Encoder(nn.Module):
         return feat
 
 
-# ResNet 18 or 50 as image encoder
+# ResNet 18/50, DenseNet-121, or ViT-style backbone as image encoder
 class ResNetEncoder(nn.Module):
     def __init__(self, arch='resnet18', feature_dim=128):
         super(ResNetEncoder, self).__init__()
 
-        self.f = []
-        #print(arch)
+        self._densenet_pool = False
         if arch == 'resnet50':
             backbone = resnet50()
             self.featdim = backbone.fc.weight.shape[1]
@@ -178,7 +177,10 @@ class ResNetEncoder(nn.Module):
             self.featdim = backbone.fc.weight.shape[1]
         elif arch == 'densenet121':
             backbone = densenet121(pretrained=True)
-            self.featdim = backbone.classifier.weight.shape[1]
+            self.featdim = backbone.classifier.in_features
+            # Only `features`; pool + flatten must match torchvision DenseNet.forward (no classifier).
+            self.f = backbone.features
+            self._densenet_pool = True
         elif arch == 'vit':
             backbone = create_model('pvt_v2_b2',
             pretrained=True,
@@ -189,23 +191,23 @@ class ResNetEncoder(nn.Module):
             )
             backbone.head = nn.Sequential()
             self.featdim = 512
+        else:
+            raise NotImplementedError(f'ResNetEncoder arch {arch!r} not supported.')
 
-        for name, module in backbone.named_children():
-            #if not isinstance(module, nn.Linear):
-            #    self.f.append(module)
-            if name != 'fc':
-                self.f.append(module)
-        # encoder
-        self.f = nn.Sequential(*self.f)
-        
-        #print(self.featdim)
+        if not self._densenet_pool:
+            parts = []
+            for name, module in backbone.named_children():
+                if name != 'fc':
+                    parts.append(module)
+            self.f = nn.Sequential(*parts)
+
         self.g = nn.Linear(self.featdim, feature_dim)
-        #self.z = nn.Linear(feature_dim, 4)
 
     def forward_feature(self, x):
         feature = self.f(x)
-        #x = x.mean(dim=1)
-
+        if self._densenet_pool:
+            feature = F.relu(feature, inplace=True)
+            feature = F.adaptive_avg_pool2d(feature, (1, 1))
         feature = torch.flatten(feature, start_dim=1)
         feature = self.g(feature)
 
