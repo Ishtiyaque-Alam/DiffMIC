@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 import gc
 
@@ -126,9 +127,51 @@ class Diffusion(object):
         y_acc_all = np.mean(y_acc_list)
         return y_acc_all
 
+    def auxiliary_classifier_pretrain(self, train_loader, aux_optimizer, config):
+        """DCG-only CE training for n_pretrain_epochs (used when training from scratch)."""
+        n_ep = int(getattr(config.diffusion.aux_cls, "n_pretrain_epochs", 0))
+        log_iv = max(1, int(getattr(config.diffusion.aux_cls, "logging_interval", 1)))
+        if n_ep <= 0:
+            return
+        logging.info("DCG pre-training %d epoch(s) before joint diffusion training.", n_ep)
+        self.cond_pred_model.train()
+        global_step = 0
+        for ep in range(n_ep):
+            epoch_loss = 0.0
+            n_batches = 0
+            for i, feature_label_set in enumerate(train_loader):
+                if config.data.dataset == "gaussian_mixture":
+                    x_batch, _, _, y_labels_batch = feature_label_set
+                else:
+                    x_batch, y_labels_batch = feature_label_set
+                x_unflat = x_batch.to(self.device)
+                y_labels_batch = y_labels_batch.to(self.device).view(-1).long()
+                loss = self.nonlinear_guidance_model_train_step(
+                    x_unflat, y_labels_batch, aux_optimizer
+                )
+                epoch_loss += loss
+                n_batches += 1
+                global_step += 1
+                if global_step % log_iv == 0:
+                    logging.info(
+                        "DCG pretrain epoch %d/%d batch %d loss %.6f",
+                        ep + 1,
+                        n_ep,
+                        i,
+                        loss,
+                    )
+            mean_ep = epoch_loss / max(n_batches, 1)
+            logging.info(
+                "DCG pretrain epoch %d/%d mean batch loss %.6f",
+                ep + 1,
+                n_ep,
+                mean_ep,
+            )
+
     def nonlinear_guidance_model_train_step(self, x_batch, y_batch, aux_optimizer):
         """
         One optimization step of the non-linear guidance model that predicts y_0_hat.
+        y_batch: class indices (long), shape (N,) for CrossEntropyLoss.
         """
         y_batch_pred,y_global,y_local = self.compute_guiding_prediction(x_batch)
         # y_batch_pred = y_batch_pred.softmax(dim=1)
@@ -183,20 +226,87 @@ class Diffusion(object):
             ema_helper = None
 
         if config.diffusion.apply_aux_cls:
-            # NOTE: Use external aux model and skip aux pre-training.
-            aux_ckpt_path = getattr(self.args, "aux_ckpt_path", None) or \
+            _default_aux_ckpt = (
                 "/kaggle/input/datasets/deadlydracula/diffmic-pretrained/aux_ckpt_best.pth"
-            aux_states = torch.load(aux_ckpt_path, map_location=self.device)
-            # saved as [state_dict, optimizer_state_dict]
-            self.cond_pred_model.load_state_dict(aux_states[0], strict=True)
+            )
+            cli_aux = getattr(self.args, "aux_ckpt_path", None)
+            load_pretrained = getattr(
+                config.diffusion.aux_cls, "load_pretrained_ckpt", True
+            )
+            loaded_external = False
+
+            if cli_aux:
+                if not os.path.isfile(cli_aux):
+                    raise FileNotFoundError(f"--aux_ckpt_path not found: {cli_aux}")
+                aux_states = torch.load(cli_aux, map_location=self.device)
+                self.cond_pred_model.load_state_dict(aux_states[0], strict=True)
+                loaded_external = True
+                logging.info("Loaded DCG from --aux_ckpt_path: %s", cli_aux)
+            elif load_pretrained:
+                if not os.path.isfile(_default_aux_ckpt):
+                    raise FileNotFoundError(
+                        f"load_pretrained_ckpt=true but missing: {_default_aux_ckpt}. "
+                        "For ISIC/local training set diffusion.aux_cls.load_pretrained_ckpt: false "
+                        "in configs/isic.yml, or pass --aux_ckpt_path."
+                    )
+                aux_states = torch.load(_default_aux_ckpt, map_location=self.device)
+                self.cond_pred_model.load_state_dict(aux_states[0], strict=True)
+                loaded_external = True
+                logging.info("Loaded DCG from pretrained: %s", _default_aux_ckpt)
+            else:
+                logging.info(
+                    "DCG random init (load_pretrained_ckpt=false); pretrain then joint_train."
+                )
+
             self.cond_pred_model.eval()
-            # report accuracy on both training and test set for the pre-trained auxiliary classifier
-            y_acc_aux_model = self.evaluate_guidance_model(train_loader)
-            logging.info("\nAfter pre-training, guidance classifier accuracy on the training set is {:.8f}.".format(
-                y_acc_aux_model))
-            y_acc_aux_model = self.evaluate_guidance_model(test_loader)
-            logging.info("\nAfter pre-training, guidance classifier accuracy on the test set is {:.8f}.\n".format(
-                y_acc_aux_model))
+            if loaded_external:
+                y_acc_aux_model = self.evaluate_guidance_model(train_loader)
+                logging.info(
+                    "\nAfter loading external DCG, train acc: {:.8f}.".format(
+                        y_acc_aux_model
+                    )
+                )
+                y_acc_aux_model = self.evaluate_guidance_model(test_loader)
+                logging.info(
+                    "\nAfter loading external DCG, test acc: {:.8f}.\n".format(
+                        y_acc_aux_model
+                    )
+                )
+
+            if (
+                not loaded_external
+                and getattr(config.diffusion.aux_cls, "pre_train", False)
+                and int(getattr(config.diffusion.aux_cls, "n_pretrain_epochs", 0)) > 0
+            ):
+                self.auxiliary_classifier_pretrain(
+                    train_loader, aux_optimizer, config
+                )
+                self.cond_pred_model.eval()
+                y_acc_aux_model = self.evaluate_guidance_model(train_loader)
+                logging.info(
+                    "\nAfter DCG pretrain, train acc: {:.8f}.".format(y_acc_aux_model)
+                )
+                y_acc_aux_model = self.evaluate_guidance_model(test_loader)
+                logging.info(
+                    "\nAfter DCG pretrain, test acc: {:.8f}.\n".format(y_acc_aux_model)
+                )
+            elif not loaded_external:
+                logging.info(
+                    "DCG pretrain skipped; joint_train will update DCG from random init."
+                )
+
+        if self.args.train_guidance_only:
+            if config.diffusion.apply_aux_cls:
+                aux_states = [
+                    self.cond_pred_model.state_dict(),
+                    aux_optimizer.state_dict(),
+                ]
+                torch.save(aux_states, os.path.join(self.args.log_path, "aux_ckpt.pth"))
+                torch.save(
+                    aux_states, os.path.join(self.args.log_path, "aux_ckpt_best.pth")
+                )
+                logging.info("train_guidance_only: saved DCG to %s", self.args.log_path)
+            return
 
         if not self.args.train_guidance_only:
             start_epoch, step = 0, 0
@@ -321,8 +431,10 @@ class Diffusion(object):
                     # joint train aux classifier along with diffusion model
                     if config.diffusion.apply_aux_cls and config.diffusion.aux_cls.joint_train:
                         self.cond_pred_model.train()
-                        aux_loss = self.nonlinear_guidance_model_train_step(x_unflat_batch, y_0_batch,
-                                                                            aux_optimizer)
+                        y_cls = y_labels_batch.to(self.device).view(-1).long()
+                        aux_loss = self.nonlinear_guidance_model_train_step(
+                            x_unflat_batch, y_cls, aux_optimizer
+                        )
                         if step % self.config.training.logging_freq == 0 or step == 1:
                             logging.info(
                                 f"meanwhile, guidance auxiliary classifier joint-training loss: {aux_loss}"

@@ -130,11 +130,11 @@ class ISICDataset(Dataset):
             self.transform_center = transforms.Compose([
                 trans.CropCenterSquare(),
                 transforms.Resize(self.trainsize),
-                #trans.CenterCrop(self.trainsize),
+                trans.CenterCrop(self.trainsize),
                 trans.RandomHorizontalFlip(),
-                #trans.RandomVerticalFlip(),
+                trans.RandomVerticalFlip(),
                 trans.RandomRotation(30),
-                #trans.adjust_light(),
+                trans.adjust_light(),
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
                 ])
@@ -142,7 +142,7 @@ class ISICDataset(Dataset):
             self.transform_center = transforms.Compose([
                 trans.CropCenterSquare(),
                 transforms.Resize(self.trainsize),
-                #trans.CenterCrop(self.trainsize),
+                trans.CenterCrop(self.trainsize),
                 transforms.ToTensor(),
                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
                 ])

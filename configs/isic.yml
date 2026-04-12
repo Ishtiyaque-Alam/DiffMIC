@@ -1,12 +1,17 @@
+# ISIC2018: place pickles under ./dataset/isic2018/ (see traindata/testdata below).
+# Train from repo root (GPU recommended):
+#   python main.py --config configs/isic.yml --exp ./runs --doc isic2018 --loss diffmic_conditional --split 0
+# Optional: --dataroot <abs_path> overrides data.dataroot; train/test paths are still resolved vs repo root.
+
 data:
     dataset: "ISIC"
     seed: 2000
     label_min_max: [0.001, 0.999]
     num_classes: 7
     num_workers: 8
-    dataroot: './dataset/'
-    traindata: './dataset/isic2018/isic2018_train.pkl'
-    testdata: './dataset/isic2018/isic2018_test.pkl'
+    dataroot: ''
+    traindata: '/kaggle/working/train.pkl'
+    testdata: '/kaggle/working/test.pkl'
 
 model:
     type: "simple"
@@ -43,6 +48,7 @@ diffusion:
     #trained_aux_cls_ckpt_name: "snapshot_self_supervised.ckpt"
     aux_cls:
         arch: resnet18_ckpt  # lenet5
+        load_pretrained_ckpt: false   # required for local ISIC (no Kaggle aux bundle)
         pre_train: True
         joint_train: True
         n_pretrain_epochs: 20
