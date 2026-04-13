@@ -36,8 +36,8 @@ diffusion:
     num_figs: 10
     include_guidance: True  # concat y_t with aux pred as eps_theta input
     apply_aux_cls: True
-    #trained_aux_cls_ckpt_path: "/data/classification/pretrained/cifar10_ckpt"
-#    trained_aux_cls_ckpt_name: "snapshot_supervised.ckpt"
+    trained_aux_cls_ckpt_path: "/kaggle/input/datasets/deadlydracula/diffmic-pretrained/"
+    trained_aux_cls_ckpt_name: "aux_ckpt_best.pth"
     #trained_aux_cls_ckpt_name: "snapshot_self_supervised.ckpt"
     aux_cls:
         arch: resnet18_ckpt  # lenet5
