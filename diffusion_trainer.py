@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 import gc
 
@@ -117,6 +118,66 @@ class Diffusion(object):
                 y_acc_list = np.concatenate([y_acc_list, y_acc], axis=0)
         y_acc_all = np.mean(y_acc_list)
         return y_acc_all
+
+    def _find_last_conv_layer(self, module):
+        """Return the last Conv2d layer in a module tree."""
+        last_conv = None
+        for _, m in module.named_modules():
+            if isinstance(m, nn.Conv2d):
+                last_conv = m
+        return last_conv
+
+    def _compute_aux_gradcam(self, images, class_ids=None):
+        """
+        Compute Grad-CAM for the auxiliary DCG classifier.
+        Returns normalized CAMs in shape (B, H, W) on CPU.
+        """
+        target_layer = self._find_last_conv_layer(self.cond_pred_model)
+        if target_layer is None:
+            return None
+
+        activations = []
+        gradients = []
+
+        def _fwd_hook(_, __, output):
+            activations.append(output)
+
+        def _bwd_hook(_, grad_input, grad_output):
+            del grad_input
+            gradients.append(grad_output[0])
+
+        h1 = target_layer.register_forward_hook(_fwd_hook)
+        h2 = target_layer.register_full_backward_hook(_bwd_hook)
+        try:
+            self.cond_pred_model.zero_grad(set_to_none=True)
+            logits, _, _ = self.cond_pred_model(images)
+            if class_ids is None:
+                class_ids = torch.argmax(logits, dim=1)
+            scores = logits.gather(1, class_ids.view(-1, 1)).sum()
+            scores.backward()
+
+            if len(activations) == 0 or len(gradients) == 0:
+                return None
+            acts = activations[-1]
+            grads = gradients[-1]
+            weights = grads.mean(dim=(2, 3), keepdim=True)
+            cam = (weights * acts).sum(dim=1)
+            cam = torch.relu(cam)
+            cam = cam.unsqueeze(1)
+            cam = nn.functional.interpolate(
+                cam,
+                size=images.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(1)
+            # normalize per sample to [0, 1]
+            cam_min = cam.amin(dim=(1, 2), keepdim=True)
+            cam_max = cam.amax(dim=(1, 2), keepdim=True)
+            cam = (cam - cam_min) / (cam_max - cam_min + 1e-8)
+            return cam.detach().cpu()
+        finally:
+            h1.remove()
+            h2.remove()
 
     def nonlinear_guidance_model_train_step(self, x_batch, y_batch, aux_optimizer):
         """
@@ -516,6 +577,11 @@ class Diffusion(object):
         kappa_avg = 0.
         y1_true = None
         y1_pred = None
+        # Save Grad-CAM overlays for a few test samples.
+        gradcam_dir = os.path.join(self.args.log_path, "gradcam")
+        os.makedirs(gradcam_dir, exist_ok=True)
+        saved_gradcams = 0
+        max_gradcams = 16
         for test_batch_idx, (images, target) in enumerate(test_loader):
             # if test_batch_idx > 3:
             #     continue
@@ -544,13 +610,93 @@ class Diffusion(object):
                 y1_pred = torch.cat([y1_pred, label_t_0]) if y1_pred is not None else label_t_0
                 y1_true = torch.cat([y1_true, target]) if y1_true is not None else target                 
 
-        f1_avg = compute_f1_score(y1_true,y1_pred)
+            # Grad-CAM from auxiliary DCG (not diffusion head) for interpretability.
+            if saved_gradcams < max_gradcams:
+                n_take = min(images_unflat.size(0), max_gradcams - saved_gradcams)
+                cam_images = images_unflat[:n_take].detach()
+                cam_targets = target[:n_take].detach()
+                cam_maps = self._compute_aux_gradcam(cam_images, class_ids=cam_targets)
+                if cam_maps is not None:
+                    imgs_cpu = cam_images.detach().cpu()
+                    for idx in range(n_take):
+                        img = imgs_cpu[idx]
+                        if img.dim() == 3 and img.size(0) == 1:
+                            base = img[0].numpy()
+                            base = (base - base.min()) / (base.max() - base.min() + 1e-8)
+                        else:
+                            base = img.permute(1, 2, 0).numpy()
+                            base = (base - base.min()) / (base.max() - base.min() + 1e-8)
+
+                        plt.figure(figsize=(4, 4))
+                        if base.ndim == 2:
+                            plt.imshow(base, cmap="gray")
+                        else:
+                            plt.imshow(base)
+                        plt.imshow(cam_maps[idx].numpy(), cmap="jet", alpha=0.4)
+                        plt.axis("off")
+                        plt.title(f"t={int(cam_targets[idx].item())}")
+                        out_path = os.path.join(
+                            gradcam_dir, f"gradcam_{saved_gradcams:04d}.png"
+                        )
+                        plt.tight_layout()
+                        plt.savefig(out_path, dpi=150, bbox_inches="tight")
+                        plt.close()
+                        saved_gradcams += 1
+                        if saved_gradcams >= max_gradcams:
+                            break
+
+        from sklearn.metrics import (
+            accuracy_score,
+            cohen_kappa_score,
+            f1_score,
+            multilabel_confusion_matrix,
+            precision_score,
+            recall_score,
+            roc_auc_score,
+        )
+        y_true_np = y1_true.detach().cpu().numpy()
+        y_prob_np = y1_pred.detach().cpu().numpy()
+        y_pred_np = np.argmax(y_prob_np, axis=1)
+        num_classes = int(config.data.num_classes)
+
+        f1_avg = f1_score(y_true_np, y_pred_np, average="macro")
+        precision_macro = precision_score(
+            y_true_np, y_pred_np, average="macro", zero_division=0
+        )
+        recall_macro = recall_score(
+            y_true_np, y_pred_np, average="macro", zero_division=0
+        )
+        accuracy_all = accuracy_score(y_true_np, y_pred_np)
+        kappa_all = cohen_kappa_score(y_true_np, y_pred_np, weights="quadratic")
+        y_true_oh = np.eye(num_classes, dtype=np.float32)[y_true_np]
+        try:
+            auc_ovo = roc_auc_score(y_true_oh, y_prob_np, average="macro", multi_class="ovo")
+        except ValueError as e:
+            logging.warning("AUC could not be computed on this split: %s", e)
+            auc_ovo = float("nan")
+
+        # Per-class TN, FP, FN, TP from one-vs-rest confusion matrices.
+        mcm = multilabel_confusion_matrix(y_true_np, y_pred_np, labels=list(range(num_classes)))
+        per_class_lines = []
+        for c in range(num_classes):
+            tn, fp, fn, tp = mcm[c].ravel().tolist()
+            per_class_lines.append(
+                f"  class {c}: TN={tn} FP={fp} FN={fn} TP={tp}"
+            )
+
         acc_avg /= (test_batch_idx + 1)
         kappa_avg /= (test_batch_idx + 1)
+        per_class_block = "\n".join(per_class_lines)
+        metrics_block = (
+            f"[Test:] Accuracy(avg-batch)={acc_avg:.6f}, Kappa(avg-batch)={kappa_avg:.6f}\n"
+            f"[Test:] Accuracy={accuracy_all:.6f}, Precision(macro)={precision_macro:.6f}, "
+            f"Recall(macro)={recall_macro:.6f}, F1(macro)={f1_avg:.6f}, "
+            f"Kappa(quadratic)={kappa_all:.6f}, AUC-OVO(macro)={auc_ovo:.6f}\n"
+            f"[Test:] Per-class TN/FP/FN/TP:\n{per_class_block}\n"
+            f"[Test:] Grad-CAM images saved: {saved_gradcams} in {gradcam_dir}"
+        )
         logging.info(
-                            (
-                                    f"[Test:] Average accuracy: {acc_avg}, Average Kappa: {kappa_avg}, F1: {f1_avg}"
-                            )
-                    )
+            metrics_block
+        )
 
 
