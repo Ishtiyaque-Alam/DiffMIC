@@ -208,6 +208,12 @@ class ResNetEncoder(nn.Module):
         if self._densenet_pool:
             feature = F.relu(feature, inplace=True)
             feature = F.adaptive_avg_pool2d(feature, (1, 1))
+        elif feature.ndim == 4:
+            # Backbones like PVT/ViT variants can emit spatial maps; pool to vector.
+            feature = F.adaptive_avg_pool2d(feature, (1, 1))
+        elif feature.ndim == 3:
+            # Token sequence output (B, N, C) -> global token average (B, C).
+            feature = feature.mean(dim=1)
         feature = torch.flatten(feature, start_dim=1)
         feature = self.g(feature)
 
