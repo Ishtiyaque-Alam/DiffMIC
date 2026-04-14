@@ -49,7 +49,7 @@ diffusion:
 
 training:
     batch_size: 16
-    n_epochs: 50
+    n_epochs: 100
     warmup_epochs: 10
     add_t0_loss: False
     n_steps_req_grad: 100
