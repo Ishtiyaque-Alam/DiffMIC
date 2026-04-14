@@ -52,7 +52,18 @@ def q_sample(y, y_0_hat, alphas_bar_sqrt, one_minus_alphas_bar_sqrt, t, noise=No
 
 
 # Reverse function -- sample y_{t-1} given y_t
-def p_sample(model, x, y, y_0_hat, y_T_mean, t, alphas, one_minus_alphas_bar_sqrt):
+def p_sample(
+    model,
+    x,
+    y,
+    y_0_hat,
+    y_T_mean,
+    t,
+    alphas,
+    one_minus_alphas_bar_sqrt,
+    y_0_global=None,
+    y_0_local=None,
+):
     """
     Reverse diffusion process sampling -- one time step.
 
@@ -76,7 +87,15 @@ def p_sample(model, x, y, y_0_hat, y_T_mean, t, alphas, one_minus_alphas_bar_sqr
     gamma_1 = (sqrt_one_minus_alpha_bar_t_m_1.square()) * (alpha_t.sqrt()) / (sqrt_one_minus_alpha_bar_t.square())
     gamma_2 = 1 + (sqrt_alpha_bar_t - 1) * (alpha_t.sqrt() + sqrt_alpha_bar_t_m_1) / (
         sqrt_one_minus_alpha_bar_t.square())
-    eps_theta = model(x, y, t, y_0_hat).to(device).detach()
+    eps_theta = model(
+        x,
+        y,
+        t,
+        y_0_hat,
+        yhat_global=y_0_global,
+        yhat_local=y_0_local,
+        use_inference_fusion=True,
+    ).to(device).detach()
     # y_0 reparameterization
     y_0_reparam = 1 / sqrt_alpha_bar_t * (
             y - (1 - sqrt_alpha_bar_t) * y_T_mean - eps_theta * sqrt_one_minus_alpha_bar_t)
@@ -91,12 +110,29 @@ def p_sample(model, x, y, y_0_hat, y_T_mean, t, alphas, one_minus_alphas_bar_sqr
 
 
 # Reverse function -- sample y_0 given y_1
-def p_sample_t_1to0(model, x, y, y_0_hat, y_T_mean, one_minus_alphas_bar_sqrt):
+def p_sample_t_1to0(
+    model,
+    x,
+    y,
+    y_0_hat,
+    y_T_mean,
+    one_minus_alphas_bar_sqrt,
+    y_0_global=None,
+    y_0_local=None,
+):
     device = next(model.parameters()).device
     t = torch.tensor([0]).to(device)  # corresponding to timestep 1 (i.e., t=1 in diffusion models)
     sqrt_one_minus_alpha_bar_t = extract(one_minus_alphas_bar_sqrt, t, y)
     sqrt_alpha_bar_t = (1 - sqrt_one_minus_alpha_bar_t.square()).sqrt()
-    eps_theta = model(x, y, t, y_0_hat).to(device).detach()
+    eps_theta = model(
+        x,
+        y,
+        t,
+        y_0_hat,
+        yhat_global=y_0_global,
+        yhat_local=y_0_local,
+        use_inference_fusion=True,
+    ).to(device).detach()
     # y_0 reparameterization
     y_0_reparam = 1 / sqrt_alpha_bar_t * (
             y - (1 - sqrt_alpha_bar_t) * y_T_mean - eps_theta * sqrt_one_minus_alpha_bar_t)
@@ -120,7 +156,7 @@ def y_0_reparam(model, x, y, y_0_hat, y_T_mean, t, one_minus_alphas_bar_sqrt):
 
 
 def p_sample_loop(model, x, y_0_hat, y_T_mean, n_steps, alphas, one_minus_alphas_bar_sqrt,
-                  only_last_sample=False):
+                  only_last_sample=False, y_0_global=None, y_0_local=None):
     num_t, y_p_seq = None, None
     device = next(model.parameters()).device
     z = torch.randn_like(y_T_mean).to(device)
@@ -131,18 +167,47 @@ def p_sample_loop(model, x, y_0_hat, y_T_mean, n_steps, alphas, one_minus_alphas
         y_p_seq = [cur_y]
     for t in reversed(range(1, n_steps)):
         y_t = cur_y
-        cur_y = p_sample(model, x, y_t, y_0_hat, y_T_mean, t, alphas, one_minus_alphas_bar_sqrt)  # y_{t-1}
+        cur_y = p_sample(
+            model,
+            x,
+            y_t,
+            y_0_hat,
+            y_T_mean,
+            t,
+            alphas,
+            one_minus_alphas_bar_sqrt,
+            y_0_global=y_0_global,
+            y_0_local=y_0_local,
+        )  # y_{t-1}
         if only_last_sample:
             num_t += 1
         else:
             y_p_seq.append(cur_y)
     if only_last_sample:
         assert num_t == n_steps
-        y_0 = p_sample_t_1to0(model, x, cur_y, y_0_hat, y_T_mean, one_minus_alphas_bar_sqrt)
+        y_0 = p_sample_t_1to0(
+            model,
+            x,
+            cur_y,
+            y_0_hat,
+            y_T_mean,
+            one_minus_alphas_bar_sqrt,
+            y_0_global=y_0_global,
+            y_0_local=y_0_local,
+        )
         return y_0
     else:
         assert len(y_p_seq) == n_steps
-        y_0 = p_sample_t_1to0(model, x, y_p_seq[-1], y_0_hat, y_T_mean, one_minus_alphas_bar_sqrt)
+        y_0 = p_sample_t_1to0(
+            model,
+            x,
+            y_p_seq[-1],
+            y_0_hat,
+            y_T_mean,
+            one_minus_alphas_bar_sqrt,
+            y_0_global=y_0_global,
+            y_0_local=y_0_local,
+        )
         y_p_seq.append(y_0)
         return y_p_seq
 
@@ -173,6 +238,8 @@ def dpm_pp_sample_loop(
     model,
     x_img,
     y_0_hat,
+    y_0_global,
+    y_0_local,
     y_T_mean,
     n_steps,
     beta_start,
@@ -230,7 +297,15 @@ def dpm_pp_sample_loop(
         # Reconstruct heterologous y_t
         y_t = x_centered + y_T_mean
         with torch.no_grad():
-            eps_theta = model(x_img, y_t, t_batch, y_0_hat)
+            eps_theta = model(
+                x_img,
+                y_t,
+                t_batch,
+                y_0_hat,
+                yhat_global=y_0_global,
+                yhat_local=y_0_local,
+                use_inference_fusion=True,
+            )
         # DPM++ step on centred variable
         x_centered = scheduler.step(eps_theta, t, x_centered).prev_sample
 

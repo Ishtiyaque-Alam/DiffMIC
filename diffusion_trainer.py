@@ -274,7 +274,14 @@ class Diffusion(object):
                     y_t_batch_local = q_sample(y_0_batch, y_0_local,
                                         self.alphas_bar_sqrt, self.one_minus_alphas_bar_sqrt, t, noise=e)
                     # output = model(x_batch, y_t_batch, t, y_T_mean)
-                    output = model(x_batch, y_t_batch, t, y_0_hat_batch)
+                    output = model(
+                        x_batch,
+                        y_t_batch,
+                        t,
+                        y_0_hat_batch,
+                        yhat_global=y_0_global,
+                        yhat_local=y_0_local,
+                    )
                     output_global = model(x_batch, y_t_batch_global, t, y_0_global)
                     output_local = model(x_batch, y_t_batch_local, t, y_0_local)
 
@@ -396,8 +403,15 @@ class Diffusion(object):
                                     target_pred, y_global, y_local = self.compute_guiding_prediction(images_unflat)
                                     target_pred = target_pred.softmax(dim=1)
 
+                                y_global = y_global.softmax(dim=1)
+                                y_local = y_local.softmax(dim=1)
                                 label_t_0 = dpm_pp_sample_loop(
-                                    model, images, target_pred, y_T_mean,
+                                    model,
+                                    images,
+                                    target_pred,
+                                    y_global,
+                                    y_local,
+                                    y_T_mean,
                                     n_steps=self.dpm_inference_steps,
                                     beta_start=self.dpm_beta_start,
                                     beta_end=self.dpm_beta_end,
@@ -550,8 +564,15 @@ class Diffusion(object):
                 if not config.diffusion.noise_prior:  # apply f_phi(x) instead of 0 as prior mean
                     target_pred, y_global, y_local = self.compute_guiding_prediction(images_unflat)
                     target_pred = target_pred.softmax(dim=1)
+                y_global = y_global.softmax(dim=1)
+                y_local = y_local.softmax(dim=1)
                 label_t_0 = dpm_pp_sample_loop(
-                    model, images, target_pred, y_T_mean,
+                    model,
+                    images,
+                    target_pred,
+                    y_global,
+                    y_local,
+                    y_T_mean,
                     n_steps=self.dpm_inference_steps,
                     beta_start=self.dpm_beta_start,
                     beta_end=self.dpm_beta_end,

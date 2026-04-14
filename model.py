@@ -85,6 +85,52 @@ class ConditionalLinear(nn.Module):
         return out
 
 
+class FiLMThreeWayFusion(nn.Module):
+    def __init__(self, y_dim):
+        super(FiLMThreeWayFusion, self).__init__()
+        self.to_gamma = nn.Linear(y_dim, y_dim)
+        self.to_beta = nn.Linear(y_dim, y_dim)
+        self.gate = nn.Linear(y_dim * 2, y_dim)
+        self.out_proj = nn.Linear(y_dim * 3, y_dim * 3)
+
+    def forward(self, y_t_g, y_t_shared, y_t_l):
+        # Global-conditioned FiLM parameters modulate local stream.
+        gamma = self.to_gamma(y_t_g)
+        beta = self.to_beta(y_t_g)
+        y_t_l_mod = gamma * y_t_l + beta
+
+        # Gate mixes the modulated local stream with shared noisy latent.
+        gate = torch.sigmoid(self.gate(torch.cat([y_t_l_mod, y_t_shared], dim=-1)))
+        y_shared_local = gate * y_t_l_mod + (1.0 - gate) * y_t_shared
+
+        # Keep output size equal to original three-way concatenation size.
+        fused = torch.cat([y_t_g, y_shared_local, y_t_l_mod], dim=-1)
+        return self.out_proj(fused)
+
+
+class GatedInferenceFusion(nn.Module):
+    def __init__(self, y_dim):
+        super(GatedInferenceFusion, self).__init__()
+        self.weight_head = nn.Linear(y_dim * 2, 2)
+        self.yt_proj = nn.Linear(y_dim, y_dim)
+        self.merge = nn.Linear(y_dim * 2, y_dim)
+        self.out_proj = nn.Linear(y_dim * 3, y_dim * 3)
+
+    def forward(self, y_g, y_t, y_l):
+        # Predict per-sample softmax weights for global vs local guidance.
+        logits = self.weight_head(torch.cat([y_g, y_l], dim=-1))
+        weights = torch.softmax(logits, dim=-1)
+        y_guided = weights[:, :1] * y_g + weights[:, 1:] * y_l
+
+        # Lightweight projection combines weighted guidance with current noisy latent.
+        y_t_feat = self.yt_proj(y_t)
+        y_mix = self.merge(torch.cat([y_guided, y_t_feat], dim=-1))
+
+        # Keep output size equal to original inference concatenation size.
+        fused = torch.cat([y_guided, y_t_feat, y_mix], dim=-1)
+        return self.out_proj(fused)
+
+
 class ConditionalModel(nn.Module):
     def __init__(self, config, guidance=False):
         super(ConditionalModel, self).__init__()
@@ -108,7 +154,9 @@ class ConditionalModel(nn.Module):
 
         # Unet
         if self.guidance:
-            self.lin1 = ConditionalLinear(y_dim * 2, feature_dim, n_steps)
+            self.film_three_way_fusion = FiLMThreeWayFusion(y_dim)
+            self.gated_inference_fusion = GatedInferenceFusion(y_dim)
+            self.lin1 = ConditionalLinear(y_dim * 3, feature_dim, n_steps)
         else:
             self.lin1 = ConditionalLinear(y_dim, feature_dim, n_steps)
         self.unetnorm1 = nn.BatchNorm1d(feature_dim)
@@ -118,12 +166,34 @@ class ConditionalModel(nn.Module):
         self.unetnorm3 = nn.BatchNorm1d(feature_dim)
         self.lin4 = nn.Linear(feature_dim, y_dim)
 
-    def forward(self, x, y, t, yhat=None):
+    def forward(
+        self,
+        x,
+        y,
+        t,
+        yhat=None,
+        yhat_global=None,
+        yhat_local=None,
+        use_inference_fusion=False,
+    ):
         x = self.encoder_x(x)
         x = self.norm(x)
         if self.guidance:
-            #for yh in yhat:
-            y = torch.cat([y, yhat], dim=-1)
+            # Backward-compatible fallback when callers only provide a single guidance tensor.
+            if yhat_global is None:
+                yhat_global = yhat
+            if yhat_local is None:
+                yhat_local = yhat
+            if yhat_global is None or yhat_local is None:
+                raise ValueError(
+                    "Guidance enabled but no guidance tensor provided. "
+                    "Pass yhat or (yhat_global, yhat_local)."
+                )
+
+            if use_inference_fusion:
+                y = self.gated_inference_fusion(yhat_global, y, yhat_local)
+            else:
+                y = self.film_three_way_fusion(yhat_global, y, yhat_local)
         y = self.lin1(y, t)
         y = self.unetnorm1(y)
         y = F.softplus(y)
