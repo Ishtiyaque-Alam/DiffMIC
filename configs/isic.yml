@@ -10,8 +10,8 @@ data:
     num_classes: 7
     num_workers: 8
     dataroot: ''
-    traindata: '/kaggle/working/train_HAM10000.pkl'
-    testdata: '/kaggle/working/test_HAM10000.pkl'
+    traindata: '/kaggle/working/train.pkl'
+    testdata: '/kaggle/working/test.pkl'
 
 model:
     type: "simple"
@@ -24,7 +24,7 @@ model:
     hidden_dim: 6144
     cat_x: True
     cat_y_pred: True
-    arch: vit
+    arch: resnet18
     convnextv2_pretrained_path: "/kaggle/input/models/deadlydracula/convnextv2/pytorch/default/1/model.safetensors"
 #    arch: resnet50
 #    arch: resnet18
