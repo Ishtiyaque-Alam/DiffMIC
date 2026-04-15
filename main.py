@@ -169,7 +169,15 @@ def parse_config():
     args.log_path = os.path.join(args.exp, "logs", args.doc)
 
     # parse config file
-    with open(os.path.join(args.config), "r") as f:
+    config_path = os.path.join(args.config)
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError(
+            f"Config file not found: {config_path}. "
+            "If you are testing from an experiment directory, pass --test and set "
+            "--config to the logs root (e.g., /path/to/exp/logs/). "
+            "If you are training, pass an explicit YAML file path."
+        )
+    with open(config_path, "r") as f:
         if args.sample or args.test:
             config = yaml.unsafe_load(f)
             new_config = config
@@ -359,5 +367,15 @@ def main():
 if __name__ == "__main__":
     args.doc = args.doc + "/split_" + str(args.split)
     if args.test:
-        args.config = args.config + args.doc + "/config.yml"
+        # Support both:
+        # 1) --config /path/to/exp/logs/   (directory root for test-time config)
+        # 2) --config /path/to/config.yml   (explicit config file)
+        config_is_dir_like = (
+            os.path.isdir(args.config)
+            or args.config.endswith("/")
+            or args.config.endswith("\\")
+            or not args.config.lower().endswith((".yml", ".yaml"))
+        )
+        if config_is_dir_like:
+            args.config = os.path.join(args.config, args.doc, "config.yml")
     sys.exit(main())

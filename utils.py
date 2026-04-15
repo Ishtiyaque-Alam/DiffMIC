@@ -202,6 +202,33 @@ def compute_f1_score(gt, pred):
     return F1
 
 
+def compute_classification_metrics(y_true, y_pred_probs):
+    """
+    Compute common multiclass metrics from ground-truth labels and prediction probabilities/logits.
+    Returns values in [0,1] for accuracy/precision/recall/f1/balanced_accuracy and raw kappa.
+    """
+    if torch.is_tensor(y_true):
+        y_true = y_true.cpu().detach().numpy()
+    else:
+        y_true = np.asarray(y_true)
+    if torch.is_tensor(y_pred_probs):
+        y_pred_probs = y_pred_probs.cpu().detach().numpy()
+    else:
+        y_pred_probs = np.asarray(y_pred_probs)
+
+    y_true = np.ravel(y_true).astype(np.int64, copy=False)
+    y_pred = np.argmax(y_pred_probs, axis=1).astype(np.int64, copy=False)
+
+    return {
+        "accuracy": accuracy_score(y_true, y_pred),
+        "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
+        "precision_macro": precision_score(y_true, y_pred, average="macro", zero_division=0),
+        "recall_macro": recall_score(y_true, y_pred, average="macro", zero_division=0),
+        "f1_macro": f1_score(y_true, y_pred, average="macro", zero_division=0),
+        "kappa_quadratic": cohen_kappa_score(y_true, y_pred, weights="quadratic"),
+    }
+
+
 def format_classification_detail_report(y_true, y_pred_probs, num_classes):
     """
     Confusion matrix (rows=true, cols=pred) and per-class TN/FP/FN/TP via one-vs-rest.

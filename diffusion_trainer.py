@@ -1,5 +1,6 @@
 import logging
 import os
+import json
 import time
 import gc
 
@@ -678,9 +679,7 @@ class Diffusion(object):
                 y1_pred = torch.cat([y1_pred, label_t_0]) if y1_pred is not None else label_t_0
                 y1_true = torch.cat([y1_true, target]) if y1_true is not None else target                 
 
-        f1_avg   = compute_f1_score(y1_true, y1_pred)
-        kappa_avg = cohen_kappa(y1_pred.detach().cpu(), y1_true.cpu()).item()
-        acc_avg  /= (test_batch_idx + 1)
+        metrics = compute_classification_metrics(y1_true, y1_pred)
         detail_report = format_classification_detail_report(
             y1_true, y1_pred, config.data.num_classes
         )
@@ -690,12 +689,40 @@ class Diffusion(object):
             f"\n{sep}\n"
             f"               TEST RESULTS\n"
             f"{sep}\n"
-            f"  Accuracy  : {acc_avg * 100:.2f}%\n"
-            f"  F1 Score  : {f1_avg:.4f}  (macro)\n"
-            f"  Kappa     : {kappa_avg:.4f}  (quadratic)\n"
+            f"  Accuracy  : {metrics['accuracy'] * 100:.2f}%\n"
+            f"  Precision : {metrics['precision_macro']:.4f}  (macro)\n"
+            f"  Recall    : {metrics['recall_macro']:.4f}  (macro)\n"
+            f"  F1 Score  : {metrics['f1_macro']:.4f}  (macro)\n"
+            f"  Kappa     : {metrics['kappa_quadratic']:.4f}  (quadratic)\n"
+            f"  Balanced Acc: {metrics['balanced_accuracy']:.4f}\n"
             f"  DPM++ steps used : {self.dpm_inference_steps}\n"
             f"{detail_report}\n"
             f"{sep}"
         )
         logging.info(result_str)
         print(result_str)
+
+        metrics_out = {
+            "ckpt_id": ckpt_id,
+            "dpmpp_steps": int(self.dpm_inference_steps),
+            "accuracy": float(metrics["accuracy"]),
+            "precision_macro": float(metrics["precision_macro"]),
+            "recall_macro": float(metrics["recall_macro"]),
+            "f1_macro": float(metrics["f1_macro"]),
+            "kappa_quadratic": float(metrics["kappa_quadratic"]),
+            "balanced_accuracy": float(metrics["balanced_accuracy"]),
+        }
+        json_path = os.path.join(log_path, f"test_results_{ckpt_id}.json")
+        csv_path = os.path.join(log_path, f"test_results_{ckpt_id}.csv")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(metrics_out, f, indent=2)
+        with open(csv_path, "w", encoding="utf-8") as f:
+            f.write("ckpt_id,dpmpp_steps,accuracy,precision_macro,recall_macro,f1_macro,kappa_quadratic,balanced_accuracy\n")
+            f.write(
+                f"{metrics_out['ckpt_id']},{metrics_out['dpmpp_steps']},"
+                f"{metrics_out['accuracy']:.8f},{metrics_out['precision_macro']:.8f},"
+                f"{metrics_out['recall_macro']:.8f},{metrics_out['f1_macro']:.8f},"
+                f"{metrics_out['kappa_quadratic']:.8f},{metrics_out['balanced_accuracy']:.8f}\n"
+            )
+        logging.info("Saved test metrics JSON to: %s", json_path)
+        logging.info("Saved test metrics CSV to: %s", csv_path)
