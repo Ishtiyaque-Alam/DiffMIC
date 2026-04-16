@@ -55,8 +55,8 @@ diffusion:
         logging_interval: 1
     
 training:
-    batch_size: 32
-    n_epochs: 100
+    batch_size: 16
+    n_epochs: 50
     warmup_epochs: 10
     add_t0_loss: False
     n_steps_req_grad: 100
@@ -71,13 +71,13 @@ training:
     image_folder: 'training_image_samples'
 
 sampling:
-    batch_size: 32
+    batch_size: 16
     sampling_size: 1000
     last_only: True
     image_folder: 'sampling_image_samples'
 
 testing:
-    batch_size: 32
+    batch_size: 16
     sampling_size: 1000
     last_only: True
     plot_freq: 200
