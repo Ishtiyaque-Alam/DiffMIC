@@ -19,7 +19,7 @@ model:
     hidden_dim: 6144
     cat_x: True
     cat_y_pred: True
-    arch: resnet18
+    arch: convnextv2
     convnextv2_pretrained_path: "/kaggle/input/models/deadlydracula/convnextv2/pytorch/default/1/model.safetensors"
 #    arch: resnet50
 #    arch: resnet18
@@ -32,7 +32,7 @@ diffusion:
     beta_schedule: linear  # cosine_anneal, cosine
     beta_start: 0.0001
     beta_end: 0.02
-    timesteps: 1000
+    timesteps: 250
     test_timesteps: 10   # DPM++ 2M NFE count (10 steps ≈ DDPM-250 quality)
     vis_step: 100
     num_figs: 10
